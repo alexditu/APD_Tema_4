@@ -1,0 +1,104 @@
+Tema 4 APD
+Nume: Ditu Alexandru
+Grupa: 333CA
+
+Rulare tema:
+	make build -> genereaza executabilul tema4.out
+	mpirun -np nr_proc tema4.out in msg
+		unde:
+			nr_proc = nr de procese, trebuie sa fie acelasi cu nr de noduri
+					  din topologie
+			in 		= numele fisierului de intrare, in care se gaseste
+			     	  topologia
+			msg		= numele fisierului din care se citesc mesajele de
+					  transmis
+	Fisierele de input sunt:
+		in1 msg1 si in2 msg2
+	
+		Astfel trebuie rulat:
+
+		1) mpirun -np 12 tema4.out in1 msg1
+		2) mpirun -np 7 tema4.out in2 msg2
+
+Exercitiul 1 - Generare Tabela de Rutare
+	Am folosit algoritmul din laborator (mesaje de sondaj cu ecou). Dupa ce
+	procesul Master (cel cu rank-ul 0) a obtinut matricea cu intreaga topologie,
+	acesta a calculat (intern) tabela de rutare (folosind algoritmul lui Floyd
+	Warshall din cursul de Protocoale de Comunicatie). In continuare Masterul
+	trimite tuturor proceselor toata tabela de rutare, din care fiecare proces
+	isi ia doar linia care il intereseaza (vectorul de rutare aferent), folosind
+	in continuare algoritmul din laborator.
+
+	In plus fata de algoritm, am salvat pentru fiecare proces, acele noduri
+	carora le trimit ecoul nul in variabila: vector<int> banned_neigh. Astfel
+	cand mai fac operatii pe aceasta topologie, nu trimit niciodata acelor
+	noduri informatii si am obitnut practic un arbore de acoperire (eliminand
+	ciclurile). Acest lucru este util pentru urmatoarele 2 exercitii.
+
+Exercitiul 2 - Stabilirea unui sistem de Posta pentru transmiterea mesajelor
+	In aceasta faza fiecare proces functioneaza la fel, nu mai e nicio
+	diferentiere intre Master si ceilalti. Initial fiecare proces citeste din
+	fisier si salveaza mesajele ce trebuie sa le trimita (cate mesaje sunt,
+	catre cine, mesajul efectiv, tipul acestuia: broadcast/normal).
+
+	Pentru comunicare am folosit MPI_Irecv impreuna cu MPI_Test, deoarece nu
+	exista o ordine in transmiterea mesajelor (nu se stie dinainte cine are de
+	trimis). Asa ca fiecare proces asteapa sa primeasca ceva cat timp mai 
+	exista procese active sau mai are de trimis mesaje. Fiinca exista mai multe
+	tipuri de mesaje ce se transmit de la un proces la altul (cat si informatii
+	de tipuri diferite) inainte de a trimite un mesaj se trimite si tipul acestuia
+	apoi datele aferente:
+		- 4 = mesaj normal
+			- prima data se trimite un int: destinatia mesajului
+			- a II-a oara un string, mesajul propriu-zis
+		- 5 = mesaj de broadcast
+			- mai intai trimimit un string cu mesajul propriu-zis
+			- a II-a oara un vector: visited[size] (unde size = nr de procese)
+			  in care sunt marcate cu 1 procesele care au primit deja mesajul 
+			  de broadcast, 0 daca nu; pentru a evita trimiterea mesajelor
+			  de mai multe ori (sau chiar la infinit)
+		- 6 = mesaj de final
+			- acesta este un mesaj prin care cel care l-a trimis anunta ca a
+			  terminat
+
+	Acum explic mai in detaliu algoritmul:
+		Cat timp mai sunt procese active sau mai am mesaje de trimis astept sa
+		primesc ceva (MPI_Irecv). Daca am primit ceva (MPI_Test), verific tipul
+		mesajului:
+			- 4 = un mesaj normal, trebuie rutat
+			- 5 = mesaj de broadcast, trebuie trimis tuturor mai putin celor care
+				  l-au primit deja
+			- 6 = cel care e trimis mesajul a terminat (marchez ca a terminat si
+				  scad nr de procese active)
+		Daca nu am primit nimic, atunci incep eu sa trimit (daca am mesaje de 
+		trimis fie normale fie de broadcast). Daca nu am nimic de trimis atunci
+		anunt ca am terminat, trimitand un mesaj de tipul 6.
+
+		In final faza 2 se termina dupa ce toate procesele au trimis toate
+		mesajele si nici un proces nu mai are nimic de trimis mai departe (adica
+		e un proces intermediar, ce ruteaza vreun mesaj).
+
+Exercitiul 3 - Stabilirea Liderului si a Adjunctului
+	Pentru aceasta faza am folosit algoritmul de alegere al liderelui folosind
+	arbore (din cursul 10). Desi topologia poate avea cicluri am putut simula
+	arborele folosind acel vector mentionat mai sus: banned_neigh. Astfel am
+	eliminat acele muchii care formau cicluri si am putut aplica algoritmul.
+
+	In plus am sarit peste faza de wake-up deoarece am considerat ca nu este
+	necesara. Astfel algoritmul folosit este urmatorul:
+		Fiecare proces asteapta sa primeasca de la copii o valoare (ce reprezinta
+		rank-ul minim) apoi trimit mai departe aceasta valoare. Cum frunzele nu
+		au copii acestea trimit prima data (fara sa mai primeasca nimic). Apoi
+		fiecare proces isi afla parintele (acel nod de la care nu au primit nimic
+		inca); trimit apoi valoarea minima (min dintre rank-ul curent si valorile
+		primite de la copii) catre parinte, dupa care primesc de la parinte
+		inca o valoare. Daca acea valoare coincide cu rank-ul curent atunci
+		procesul acela este Lider, altfel a pierdut (si stie ca nu este lider).
+
+		Deoarece se alege minimul tot timpul liderul are rank-ul 0 iar adjuctul
+		rankul 1 (prioritatea se poate schimba foarte usor, e pur si simplu
+		o variabila trimisa ca parametru unei functii; am vrut sa aleg un nr
+		random dar am vrut sa fie sigur ca fiecare va avea un nr unic).
+
+	Pentru aflarea adjunctului am folosit exact acelasi algoritm numai ca am ales
+	rank-ul minim dar diferit de rank-ul liderului.
